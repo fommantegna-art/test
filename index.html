@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calcolo Straordinari</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #667085; --border: #e3e6ec;
+    --accent: #2f6fed; --ok: #1a8a4a; --warn: #c27a00; --bad: #c43d3d; --paid: #7a4fd6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171d; --card: #1c2029; --text: #e6e9ef; --muted: #98a1b3; --border: #2c3240;
+      --accent: #6b9bff; --ok: #4cc17f; --warn: #f0b340; --bad: #f07171; --paid: #b294ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.05rem; margin: 0 0 12px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; color: var(--muted); }
+  label.inline { flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
+  input, button { font: inherit; color: inherit; }
+  input[type=date], input[type=text], input[type=number] {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; min-width: 0;
+  }
+  input.tot { width: 72px; text-align: right; padding: 4px 6px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+  button.del { background: transparent; color: var(--bad); padding: 2px 8px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .stat .v { font-size: 1.6rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .stat .l { color: var(--muted); font-size: .85rem; }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 800px) { .grid2 { grid-template-columns: 1fr; } }
+  .tbl { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
+  td.num, th.num { text-align: right; }
+  tr.weekend td { color: var(--muted); }
+  .badge { display: inline-block; font-size: .78rem; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+  .b-ok { color: var(--ok); } .b-warn { color: var(--warn); } .b-bad { color: var(--bad); } .b-paid { color: var(--paid); } .b-open { color: var(--accent); }
+  .muted { color: var(--muted); }
+  .drop { border: 2px dashed var(--border); border-radius: 12px; padding: 18px; text-align: center; color: var(--muted); }
+  .drop.over { border-color: var(--accent); color: var(--accent); }
+  .msg { margin-top: 8px; font-size: .9rem; }
+  .pos { color: var(--ok); } .neg { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Calcolo Straordinari</h1>
+  <p class="sub">Ore dalla colonna <b>TOT</b> del cartellino presenze · straordinario oltre la base giornaliera · recupero entro la finestra, poi pagamento.</p>
+
+  <section class="card">
+    <h2>Importa cartellino</h2>
+    <div class="drop" id="drop">
+      Trascina qui uno o più PDF “Cartellino presenze” oppure
+      <label style="display:inline"><input type="file" id="file" accept="application/pdf" multiple hidden><u style="color:var(--accent);cursor:pointer">scegli file</u></label>
+    </div>
+    <div class="msg" id="msg"></div>
+  </section>
+
+  <section class="card">
+    <h2>Impostazioni</h2>
+    <div class="row">
+      <label>Base giornaliera (hh:mm)<input type="text" id="base" value="8:30" size="6"></label>
+      <label>Settimane per recuperare<input type="number" id="weeks" value="8" min="1" max="52" style="width:90px"></label>
+      <label>Data di riferimento<input type="date" id="today"></label>
+      <label class="inline"><input type="checkbox" id="autoDeficit" checked> Le giornate sotto la base contano come recupero</label>
+    </div>
+  </section>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>Banca ore straordinarie</h2>
+      <div class="tbl"><table id="bank"></table></div>
+    </section>
+    <section class="card">
+      <h2>Recuperi</h2>
+      <div class="row" style="margin-bottom:12px">
+        <label>Data<input type="date" id="recDate"></label>
+        <label>Ore (hh:mm)<input type="text" id="recHours" placeholder="2:00" size="6"></label>
+        <label style="flex:1">Nota<input type="text" id="recNote" placeholder="Permesso, uscita anticipata…"></label>
+        <button id="recAdd">Aggiungi</button>
+      </div>
+      <div class="tbl"><table id="recs"></table></div>
+      <h2 style="margin-top:20px">Ore pagate (non recuperate in tempo)</h2>
+      <div class="tbl"><table id="paid"></table></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Giornate <span class="muted" style="font-weight:400">— il TOT è modificabile (es. per timbrature incomplete)</span></h2>
+    <div class="tbl"><table id="days"></table></div>
+  </section>
+
+  <section class="card row">
+    <button class="ghost" id="export">Esporta backup</button>
+    <label class="ghost" style="display:inline-block"><input type="file" id="importJson" accept="application/json" hidden><span class="ghost" style="display:inline-block;padding:8px 14px;border:1px solid var(--border);border-radius:8px;color:var(--accent);cursor:pointer">Importa backup</span></label>
+    <button class="del" id="reset" style="border:1px solid var(--border);padding:8px 14px">Cancella tutto</button>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="calc.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

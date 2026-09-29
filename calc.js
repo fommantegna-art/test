@@ -36,7 +36,20 @@
   // lines: [{text, items:[{str, x}]}] in ordine di lettura.
   // Restituisce {year, month, days:[{date, weekday, tot (minuti|null), stamps:[]}]}
   function parseCartellino(lines) {
-    let year = null, month = null, totX = null;
+    let year = null, month = null, totX = null, name = null, company = null;
+    lines.forEach((ln, i) => {
+      if (name === null && ln.items) {
+        // Il nome è la cella a sinistra dell'etichetta MATRICOLA; la riga sotto a sinistra è l'azienda.
+        const k = ln.items.findIndex(it => it.str.trim() === 'MATRICOLA');
+        if (k > 0) {
+          name = ln.items.slice(0, k).map(it => it.str.trim()).join(' ').replace(/\s+/g, ' ');
+          for (const next of lines.slice(i + 1, i + 4)) {
+            const lab = next.items.findIndex(it => /^CODICE EXPORT$/.test(it.str.trim()));
+            if (lab > 0) { company = next.items.slice(0, lab).map(it => it.str.trim()).join(' '); break; }
+          }
+        }
+      }
+    });
     for (const ln of lines) {
       const mm = new RegExp('\\b(' + MONTHS.join('|') + ')\\s+(\\d{4})\\b', 'i').exec(ln.text);
       if (mm && month === null) { month = MONTHS.indexOf(mm[1].toLowerCase()) + 1; year = Number(mm[2]); }
@@ -69,9 +82,28 @@
       days.push({ day: Number(dm[1]), weekday: dm[2].toLowerCase(), tot, stamps });
     }
     return {
-      year, month,
+      year, month, name, company,
       days: days.map(d => ({ date: year ? iso(year, month, d.day) : null, weekday: d.weekday, tot: d.tot, stamps: d.stamps })),
     };
+  }
+
+  // Un PDF può contenere più cartellini (uno per dipendente): divide le righe a ogni intestazione.
+  function parseAll(lines) {
+    const blocks = [];
+    for (const ln of lines) {
+      if (/^Cartellino presenze\b/i.test(ln.text.trim()) || !blocks.length) blocks.push([]);
+      blocks[blocks.length - 1].push(ln);
+    }
+    const out = [];
+    for (const b of blocks) {
+      const r = parseCartellino(b);
+      if (!r.days.length) continue;
+      const prev = out[out.length - 1];
+      if (!r.name && prev) { r.name = prev.name; r.company = prev.company; } // pagina di continuazione
+      if (!r.year && prev) { r.year = prev.year; r.month = prev.month; r.days = parseCartellino([...b, { text: MONTHS[prev.month - 1] + ' ' + prev.year, items: [] }]).days; }
+      out.push(r);
+    }
+    return out;
   }
 
   // days: {date: minuti lavorati}; recoveries: [{date, minutes, note}]
@@ -162,7 +194,7 @@
     return lines;
   }
 
-  const api = { parseCartellino, pdfLines, compute, toMin, fmt, addDays, MONTHS };
+  const api = { parseCartellino, parseAll, pdfLines, compute, toMin, fmt, addDays, MONTHS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Calc = api;
 })(typeof window !== 'undefined' ? window : globalThis);

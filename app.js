@@ -1,13 +1,26 @@
 (function () {
-  const { parseCartellino, pdfLines, compute, toMin, fmt, MONTHS } = window.Calc;
-  const KEY = 'straordinari-v1';
+  const { parseAll, pdfLines, compute, toMin, fmt, MONTHS } = window.Calc;
+  const KEY = 'straordinari-v2';
   const WD = ['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab'];
   const $ = id => document.getElementById(id);
 
-  // state.days: {date: {tot, stamps, edited}}
-  let state = { days: {}, recoveries: [], settings: { base: '8:30', weeks: 8, autoDeficit: true } };
-  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s) state = { ...state, ...s }; } catch (e) {}
+  // state.employees: {chiave: {name, company, days: {date: {tot, stamps, edited}}, recoveries: []}}
+  const KEY_V1 = 'straordinari-v1';
+  let state = { employees: {}, selected: null, settings: { base: '8:30', weeks: 8, autoDeficit: true } };
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY));
+    if (s) state = { ...state, ...s };
+    else {
+      const v1 = JSON.parse(localStorage.getItem(KEY_V1)); // dati della versione a dipendente singolo
+      if (v1 && v1.days && Object.keys(v1.days).length) {
+        state.employees['DIPENDENTE'] = { name: 'Dipendente (dati precedenti)', company: '', days: v1.days, recoveries: v1.recoveries || [] };
+        if (v1.settings) state.settings = v1.settings;
+      }
+    }
+  } catch (e) {}
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+  const empKey = name => (name || 'SENZA NOME').toUpperCase().replace(/\s+/g, ' ').trim();
+  const cur = () => state.employees[state.selected];
 
   const todayIso = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
   const dmy = s => s.split('-').reverse().join('/');
@@ -28,17 +41,23 @@
     for (const f of files) {
       try {
         const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await f.arrayBuffer()) }).promise;
-        const r = parseCartellino(await pdfLines(pdf));
-        if (!r.year || !r.days.length) throw new Error('formato non riconosciuto');
-        let n = 0, incomplete = 0;
-        for (const d of r.days) {
-          const prev = state.days[d.date];
-          if (prev && prev.edited && d.tot == null) continue; // non sovrascrivere correzioni manuali
-          state.days[d.date] = { tot: d.tot, stamps: d.stamps };
-          if (d.tot != null) n++; else if (d.stamps.length) incomplete++;
+        const found = parseAll(await pdfLines(pdf)).filter(r => r.year);
+        if (!found.length) throw new Error('formato non riconosciuto');
+        for (const r of found) {
+          const key = empKey(r.name);
+          const emp = state.employees[key] || (state.employees[key] = { name: r.name || 'Senza nome', company: r.company || '', days: {}, recoveries: [] });
+          if (r.company) emp.company = r.company;
+          let n = 0, incomplete = 0;
+          for (const d of r.days) {
+            const prev = emp.days[d.date];
+            if (prev && prev.edited && d.tot == null) continue; // non sovrascrivere correzioni manuali
+            emp.days[d.date] = { tot: d.tot, stamps: d.stamps };
+            if (d.tot != null) n++; else if (d.stamps.length) incomplete++;
+          }
+          state.selected = key;
+          out.push(`✓ ${esc(f.name)}: <b>${esc(emp.name)}</b>, ${MONTHS[r.month - 1]} ${r.year}, ${n} giornate con TOT` +
+            (incomplete ? `, <span class="neg">${incomplete} con timbrature incomplete</span>` : ''));
         }
-        out.push(`✓ ${f.name}: ${MONTHS[r.month - 1]} ${r.year}, ${n} giornate con TOT` +
-          (incomplete ? `, <span class="neg">${incomplete} con timbrature incomplete</span>` : ''));
       } catch (e) {
         out.push(`<span class="neg">✗ ${esc(f.name)}: ${esc(e.message)}</span>`);
       }
@@ -52,13 +71,51 @@
     return { baseMin: base == null ? 510 : base, windowDays: (Number($('weeks').value) || 8) * 7, autoDeficit: $('autoDeficit').checked };
   }
 
+  function computeEmp(emp, st, today) {
+    const days = Object.fromEntries(Object.entries(emp.days).map(([k, v]) => [k, v.tot]));
+    const res = compute(days, emp.recoveries, st, today);
+    const open = res.bank.filter(b => b.status === 'aperte');
+    res.soon = open.filter(b => b.daysLeft <= 7).reduce((s, b) => s + b.remaining, 0);
+    res.next = open.length ? open[0] : null;
+    return res;
+  }
+
+  function renderOverview(st, today) {
+    const keys = Object.keys(state.employees).sort((a, b) => state.employees[a].name.localeCompare(state.employees[b].name));
+    if (!keys.length) { $('emps').innerHTML = '<tr><td class="muted">Nessun dipendente: importa uno o più cartellini.</td></tr>'; return; }
+    const sum = { overtime: 0, recovered: 0, open: 0, soon: 0, paid: 0 };
+    const rows = keys.map(k => {
+      const emp = state.employees[k];
+      const r = computeEmp(emp, st, today);
+      for (const f of ['overtime', 'recovered', 'open', 'paid']) sum[f] += r.totals[f];
+      sum.soon += r.soon;
+      const months = [...new Set(Object.keys(emp.days).map(d => d.slice(0, 7)))].sort()
+        .map(m => MONTHS[m.slice(5) - 1].slice(0, 3) + ' ' + m.slice(2, 4)).join(', ');
+      return `<tr data-emp="${esc(k)}" class="${k === state.selected ? 'sel' : ''}"><td><b>${esc(emp.name)}</b><br><span class="muted">${esc(emp.company)}</span></td>` +
+        `<td class="muted">${months}</td><td class="num">${fmt(r.totals.overtime)}</td><td class="num pos">${fmt(r.totals.recovered)}</td>` +
+        `<td class="num">${fmt(r.totals.open)}</td><td class="num ${r.soon ? 'neg' : ''}">${fmt(r.soon)}</td><td class="num">${fmt(r.totals.paid)}</td>` +
+        `<td>${r.next ? dmy(r.next.deadline) + ' <span class="muted">(' + fmt(r.next.remaining) + ')</span>' : '—'}</td></tr>`;
+    });
+    $('emps').innerHTML = '<tr><th>Dipendente</th><th>Mesi</th><th class="num">Straord.</th><th class="num">Recuperate</th>' +
+      '<th class="num">Da recuperare</th><th class="num">Scad. ≤7 gg</th><th class="num">Pagate</th><th>Prossima scadenza</th></tr>' +
+      rows.join('') + (keys.length > 1 ? `<tr class="total"><td>Totale (${keys.length})</td><td></td><td class="num">${fmt(sum.overtime)}</td>` +
+      `<td class="num">${fmt(sum.recovered)}</td><td class="num">${fmt(sum.open)}</td><td class="num">${fmt(sum.soon)}</td><td class="num">${fmt(sum.paid)}</td><td></td></tr>` : '');
+    $('empSel').innerHTML = keys.map(k => `<option value="${esc(k)}" ${k === state.selected ? 'selected' : ''}>${esc(state.employees[k].name)}</option>`).join('');
+  }
+
   function render() {
     const st = settings();
     const today = $('today').value || todayIso();
-    const days = Object.fromEntries(Object.entries(state.days).map(([k, v]) => [k, v.tot]));
-    const res = compute(days, state.recoveries, st, today);
+    if (!state.employees[state.selected]) state.selected = Object.keys(state.employees)[0] || null;
+    renderOverview(st, today);
+    $('detail').hidden = !state.selected;
+    if (!state.selected) return;
+    const emp = cur();
+    $('empName').textContent = emp.name;
+    $('empCompany').textContent = emp.company;
+    const res = computeEmp(emp, st, today);
     const t = res.totals;
-    const soon = res.bank.filter(b => b.status === 'aperte' && b.daysLeft <= 7).reduce((s, b) => s + b.remaining, 0);
+    const soon = res.soon;
 
     $('stats').innerHTML = [
       ['Straordinari totali', fmt(t.overtime), ''],
@@ -95,10 +152,10 @@
       : '<tr><td class="muted">Nessuna ora scaduta finora.</td></tr>';
 
     // Giornate
-    const dates = Object.keys(state.days).sort().reverse();
+    const dates = Object.keys(emp.days).sort().reverse();
     $('days').innerHTML = dates.length ? '<tr><th>Data</th><th>Timbrature</th><th class="num">TOT</th><th class="num">Diff. base</th></tr>' +
       dates.map(d => {
-        const v = state.days[d];
+        const v = emp.days[d];
         const wd = WD[new Date(d + 'T12:00').getDay()];
         const diff = v.tot == null ? '' : v.tot - st.baseMin;
         const incomplete = v.tot == null && v.stamps && v.stamps.length;
@@ -125,13 +182,13 @@
   $('recAdd').addEventListener('click', () => {
     const m = toMin($('recHours').value);
     if (!$('recDate').value || !m || m <= 0) { alert('Inserisci data e ore nel formato hh:mm'); return; }
-    state.recoveries.push({ date: $('recDate').value, minutes: m, note: $('recNote').value.trim() });
+    cur().recoveries.push({ date: $('recDate').value, minutes: m, note: $('recNote').value.trim() });
     $('recHours').value = ''; $('recNote').value = '';
     save(); render();
   });
   $('recs').addEventListener('click', e => {
     const i = e.target.dataset.rec;
-    if (i != null) { state.recoveries.splice(Number(i), 1); save(); render(); }
+    if (i != null) { cur().recoveries.splice(Number(i), 1); save(); render(); }
   });
   $('days').addEventListener('change', e => {
     const d = e.target.dataset.day;
@@ -139,7 +196,7 @@
     const raw = e.target.value.trim();
     const m = raw === '' ? null : toMin(raw);
     if (raw !== '' && m == null) { alert('Formato hh:mm'); render(); return; }
-    state.days[d] = { ...state.days[d], tot: m, edited: true };
+    cur().days[d] = { ...cur().days[d], tot: m, edited: true };
     save(); render();
   });
 
@@ -154,7 +211,15 @@
     catch (err) { alert('Backup non valido'); }
   });
   $('reset').addEventListener('click', () => {
-    if (confirm('Cancellare tutte le giornate e i recuperi?')) { state.days = {}; state.recoveries = []; save(); render(); }
+    if (confirm('Cancellare tutti i dipendenti, le giornate e i recuperi?')) { state.employees = {}; state.selected = null; save(); render(); }
+  });
+  $('emps').addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-emp]');
+    if (tr) { state.selected = tr.dataset.emp; save(); render(); $('detail').scrollIntoView({ behavior: 'smooth' }); }
+  });
+  $('empSel').addEventListener('change', e => { state.selected = e.target.value; save(); render(); });
+  $('empDel').addEventListener('click', () => {
+    if (state.selected && confirm(`Eliminare ${cur().name} e tutti i suoi dati?`)) { delete state.employees[state.selected]; state.selected = null; save(); render(); }
   });
 
   render();

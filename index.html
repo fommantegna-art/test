@@ -49,13 +49,18 @@
   .drop { border: 2px dashed var(--border); border-radius: 12px; padding: 18px; text-align: center; color: var(--muted); }
   .drop.over { border-color: var(--accent); color: var(--accent); }
   .msg { margin-top: 8px; font-size: .9rem; }
+  select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; }
+  table.clickable tr[data-emp] { cursor: pointer; }
+  table.clickable tr[data-emp]:hover td { background: var(--bg); }
+  table.clickable tr.sel td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
   .pos { color: var(--ok); } .neg { color: var(--bad); }
 </style>
 </head>
 <body>
 <main>
   <h1>Calcolo Straordinari</h1>
-  <p class="sub">Ore dalla colonna <b>TOT</b> del cartellino presenze · straordinario oltre la base giornaliera · recupero entro la finestra, poi pagamento.</p>
+  <p class="sub">Carica i cartellini di tutti i dipendenti: nome e colonna <b>TOT</b> vengono letti dal PDF · straordinario oltre la base giornaliera · recupero entro la finestra, poi pagamento.</p>
 
   <section class="card">
     <h2>Importa cartellino</h2>
@@ -76,6 +81,19 @@
     </div>
   </section>
 
+  <section class="card">
+    <h2>Dipendenti <span class="muted" style="font-weight:400">— clicca una riga per vedere il dettaglio</span></h2>
+    <div class="tbl"><table id="emps" class="clickable"></table></div>
+  </section>
+
+  <div id="detail">
+  <div class="row" style="justify-content:space-between;margin:24px 0 12px">
+    <h2 style="margin:0;font-size:1.25rem">Dettaglio: <span id="empName"></span> <span class="muted" id="empCompany" style="font-weight:400;font-size:.9rem"></span></h2>
+    <div class="row">
+      <label>Dipendente<select id="empSel"></select></label>
+      <button class="del" id="empDel" style="border:1px solid var(--border);padding:8px 14px">Elimina dipendente</button>
+    </div>
+  </div>
   <div class="stats" id="stats"></div>
 
   <div class="grid2">
@@ -101,6 +119,8 @@
     <h2>Giornate <span class="muted" style="font-weight:400">— il TOT è modificabile (es. per timbrature incomplete)</span></h2>
     <div class="tbl"><table id="days"></table></div>
   </section>
+
+  </div>
 
   <section class="card row">
     <button class="ghost" id="export">Esporta backup</button>

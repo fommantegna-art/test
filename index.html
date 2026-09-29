@@ -54,11 +54,10 @@
   table.clickable tr[data-emp]:hover td { background: var(--bg); }
   table.clickable tr.sel td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
   #recs td:nth-child(4) { white-space: normal; min-width: 140px; }
-  tr.month td { font-weight: 650; background: var(--bg); padding-top: 10px; }
-  #days details { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; }
-  #days summary { cursor: pointer; padding: 10px 12px; }
-  #days details[open] summary { border-bottom: 1px solid var(--border); }
-  #days .tbl { padding: 0 8px 6px; }
+  .months details { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
+  .months summary { cursor: pointer; padding: 9px 12px; line-height: 1.9; }
+  .months details[open] summary { border-bottom: 1px solid var(--border); }
+  .months .tbl { padding: 0 8px 6px; max-height: 420px; overflow-y: auto; }
   tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
   .pos { color: var(--ok); } .neg { color: var(--bad); }
 </style>
@@ -110,7 +109,7 @@
   <div class="grid2">
     <section class="card">
       <h2>Banca ore straordinarie</h2>
-      <div class="tbl"><table id="bank"></table></div>
+      <div id="bank" class="months"></div>
     </section>
     <section class="card">
       <h2>Recuperi</h2>
@@ -120,7 +119,7 @@
         <label style="flex:1">Nota<input type="text" id="recNote" placeholder="Permesso, uscita anticipata…"></label>
         <button id="recAdd">Aggiungi</button>
       </div>
-      <div class="tbl"><table id="recs"></table></div>
+      <div id="recs" class="months"></div>
       <h2 style="margin-top:20px">Ore pagate (non recuperate in tempo)</h2>
       <div class="tbl"><table id="paid"></table></div>
     </section>
@@ -128,7 +127,7 @@
 
   <section class="card">
     <h2>Giornate <span class="muted" style="font-weight:400">— il TOT è modificabile (es. per timbrature incomplete)</span></h2>
-    <div id="days"></div>
+    <div id="days" class="months"></div>
   </section>
 
   </div>

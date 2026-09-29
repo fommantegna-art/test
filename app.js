@@ -74,7 +74,7 @@
       }
     }
     $('msg').innerHTML = out.join('<br>');
-    $('days').innerHTML = ''; // dopo un import si apre il mese più recente
+    resetBlocks(); // dopo un import si riparte dal mese più recente
     save(); render();
   }
 
@@ -168,23 +168,41 @@
       const cls = b.daysLeft <= 7 ? 'b-bad' : b.daysLeft <= 14 ? 'b-warn' : 'b-open';
       return `<span class="badge ${cls}">${b.daysLeft} gg</span>`;
     };
-    $('bank').innerHTML = res.bank.length ? '<tr><th>Giorno</th><th class="num">Extra</th><th class="num">Residuo</th><th>Scadenza</th><th>Stato</th></tr>' +
-      groupByMonth(res.bank.slice().reverse(), b => b.date).map(([m, items]) =>
-        `<tr class="month"><td>${monthLabel(m)}</td><td class="num">${fmt(items.reduce((s, b) => s + b.minutes, 0))}</td>` +
-        `<td class="num">${fmt(items.reduce((s, b) => s + (b.status === 'recuperate' ? 0 : b.remaining), 0))}</td><td colspan="2"></td></tr>` +
-        items.map(b => `<tr><td>${dmy(b.date)}</td><td class="num">${fmt(b.minutes)}</td>` +
-          `<td class="num">${fmt(b.remaining)}</td><td>${dmy(b.deadline)}</td><td>${badge(b)}</td></tr>`).join('')).join('')
-      : '<tr><td class="muted">Nessuno straordinario: importa un cartellino.</td></tr>';
+    const sumBy = (arr, f) => arr.reduce((t, x) => t + f(x), 0);
+    monthBlocks('bank', groupByMonth(res.bank.slice().reverse(), b => b.date), {
+      empty: 'Nessuno straordinario: importa un cartellino.',
+      header: '<th>Giorno</th><th class="num">Extra</th><th class="num">Residuo</th><th>Scadenza</th><th>Stato</th>',
+      summary: items => {
+        const open = items.filter(b => b.status === 'aperte');
+        const soonM = sumBy(open.filter(b => b.daysLeft <= 7), b => b.remaining);
+        const paidM = sumBy(items.filter(b => b.status === 'pagate'), b => b.remaining);
+        const recM = sumBy(items, b => b.minutes - (b.status === 'recuperate' ? 0 : b.remaining));
+        const next = open.length ? open[open.length - 1] : null; // lista in ordine decrescente: l'ultima scade prima
+        return `<span class="muted"> · extra ${fmt(sumBy(items, b => b.minutes))}</span>` +
+          (open.length ? ` <span class="badge b-open">da recuperare ${fmt(sumBy(open, b => b.remaining))}</span>` : '') +
+          (soonM ? ` <span class="badge b-bad">scadono ≤7 gg ${fmt(soonM)}</span>` : '') +
+          (recM ? ` <span class="badge b-ok">recuperate ${fmt(recM)}</span>` : '') +
+          (paidM ? ` <span class="badge b-paid">da pagare ${fmt(paidM)}</span>` : '') +
+          (next ? `<span class="muted"> · prima scadenza ${dmy(next.deadline)}</span>` : '');
+      },
+      row: b => `<tr><td>${dmy(b.date)}</td><td class="num">${fmt(b.minutes)}</td>` +
+        `<td class="num">${fmt(b.remaining)}</td><td>${dmy(b.deadline)}</td><td>${badge(b)}</td></tr>`,
+    });
 
     // Recuperi (manuali + automatici), divisi per mese
-    $('recs').innerHTML = res.recLog.length ? '<tr><th>Data</th><th class="num">Ore</th><th>Nota</th><th>Coperto da</th><th></th></tr>' +
-      groupByMonth(res.recLog.slice().reverse(), r => r.date).map(([m, items]) =>
-        `<tr class="month"><td>${monthLabel(m)}</td><td class="num">${fmt(items.reduce((s, r) => s + r.minutes, 0))}</td><td colspan="3"></td></tr>` +
-        items.map(r => `<tr><td>${dmy(r.date)}</td><td class="num">${fmt(r.minutes)}</td>` +
-          `<td>${esc(r.note)}</td><td>${r.used.map(u => dmy(u.from).slice(0, 5) + ' (' + fmt(u.minutes) + ')').join(', ') || '—'}` +
-          `${r.uncovered ? ` <span class="neg">scoperto ${fmt(r.uncovered)}</span>` : ''}</td>` +
-          `<td>${r.auto ? '<span class="muted">auto</span>' : `<button class="del" data-rec="${r.idx}">✕</button>`}</td></tr>`).join('')).join('')
-      : '<tr><td class="muted">Nessun recupero registrato.</td></tr>';
+    monthBlocks('recs', groupByMonth(res.recLog.slice().reverse(), r => r.date), {
+      empty: 'Nessun recupero registrato.',
+      header: '<th>Data</th><th class="num">Ore</th><th>Nota</th><th>Coperto da</th><th></th>',
+      summary: items => {
+        const unc = sumBy(items, r => r.uncovered);
+        return `<span class="muted"> · ${items.length} recuperi · ${fmt(sumBy(items, r => r.minutes))} ore</span>` +
+          (unc ? ` <span class="badge b-bad">scoperte ${fmt(unc)}</span>` : '');
+      },
+      row: r => `<tr><td>${dmy(r.date)}</td><td class="num">${fmt(r.minutes)}</td>` +
+        `<td>${esc(r.note)}</td><td>${r.used.map(u => dmy(u.from).slice(0, 5) + ' (' + fmt(u.minutes) + ')').join(', ') || '—'}` +
+        `${r.uncovered ? ` <span class="neg">scoperto ${fmt(r.uncovered)}</span>` : ''}</td>` +
+        `<td>${r.auto ? '<span class="muted">auto</span>' : `<button class="del" data-rec="${r.idx}">✕</button>`}</td></tr>`,
+    });
 
     const paid = Object.entries(res.paidByMonth).sort();
     $('paid').innerHTML = paid.length ? '<tr><th>Mese di scadenza</th><th class="num">Ore</th></tr>' +
@@ -193,28 +211,44 @@
 
     // Giornate: un blocco apribile per mese (il più recente aperto)
     const dates = Object.keys(emp.days).sort().reverse();
-    const openMonths = new Set([...$('days').querySelectorAll('details[open]')].map(d => d.dataset.month));
-    const groups = groupByMonth(dates, d => d);
-    const keepOpen = groups.some(([m]) => openMonths.has(m)); // conserva i mesi aperti tra un aggiornamento e l'altro
-    $('days').innerHTML = dates.length ? groups.map(([m, ds], i) => {
-      const r = byMonth[m];
-      const isOpen = keepOpen ? openMonths.has(m) : i === 0;
-      return `<details data-month="${m}" ${isOpen ? 'open' : ''}><summary><b>${monthLabel(m)}</b>` +
-        `<span class="muted"> · ${r.days} giorni · ${fmt(r.worked)} lavorate · <span class="pos">+${fmt(r.ot)} straord.</span></span>` +
-        `${r.incomplete ? ` <span class="badge b-warn">${r.incomplete} incomplete</span>` : ''}</summary>` +
-        '<div class="tbl"><table><tr><th>Data</th><th>Timbrature</th><th class="num">TOT</th><th class="num">Diff. base</th></tr>' +
-        ds.map(d => {
-          const v = emp.days[d];
-          const wd = WD[new Date(d + 'T12:00').getDay()];
-          const diff = v.tot == null ? '' : v.tot - st.baseMin;
-          const incomplete = v.tot == null && v.stamps && v.stamps.length;
-          return `<tr class="${wd === 'sab' || wd === 'dom' ? 'weekend' : ''}"><td>${wd} ${dmy(d)}</td>` +
-            `<td>${(v.stamps || []).join(' · ')}${incomplete ? ' <span class="badge b-warn">incompleta</span>' : ''}</td>` +
-            `<td class="num"><input class="tot" data-day="${d}" value="${v.tot == null ? '' : fmt(v.tot)}" placeholder="—"></td>` +
-            `<td class="num ${diff > 0 ? 'pos' : diff < 0 && v.tot > 0 ? 'neg' : 'muted'}">${diff === '' ? '' : (diff > 0 ? '+' : '') + fmt(diff)}</td></tr>`;
-        }).join('') + '</table></div></details>';
-    }).join('') : '<p class="muted">Nessuna giornata.</p>';
+    monthBlocks('days', groupByMonth(dates, d => d), {
+      openFirst: true,
+      empty: 'Nessuna giornata.',
+      header: '<th>Data</th><th>Timbrature</th><th class="num">TOT</th><th class="num">Diff. base</th>',
+      summary: (ds, m) => {
+        const r = byMonth[m];
+        return `<span class="muted"> · ${r.days} giorni · ${fmt(r.worked)} lavorate · <span class="pos">+${fmt(r.ot)} straord.</span></span>` +
+          (r.incomplete ? ` <span class="badge b-warn">${r.incomplete} incomplete</span>` : '');
+      },
+      row: d => {
+        const v = emp.days[d];
+        const wd = WD[new Date(d + 'T12:00').getDay()];
+        const diff = v.tot == null ? '' : v.tot - st.baseMin;
+        const incomplete = v.tot == null && v.stamps && v.stamps.length;
+        return `<tr class="${wd === 'sab' || wd === 'dom' ? 'weekend' : ''}"><td>${wd} ${dmy(d)}</td>` +
+          `<td>${(v.stamps || []).join(' · ')}${incomplete ? ' <span class="badge b-warn">incompleta</span>' : ''}</td>` +
+          `<td class="num"><input class="tot" data-day="${d}" value="${v.tot == null ? '' : fmt(v.tot)}" placeholder="—"></td>` +
+          `<td class="num ${diff > 0 ? 'pos' : diff < 0 && v.tot > 0 ? 'neg' : 'muted'}">${diff === '' ? '' : (diff > 0 ? '+' : '') + fmt(diff)}</td></tr>`;
+      },
+    });
   }
+
+  // Blocchi apribili, uno per mese. Conserva i mesi aperti tra un aggiornamento e l'altro;
+  // altrimenti apre il più recente (openFirst) o li lascia tutti chiusi.
+  function monthBlocks(id, groups, { header, row, summary, empty, openFirst }) {
+    const el = $(id);
+    if (!groups.length) { el.innerHTML = `<p class="muted">${empty}</p>`; return; }
+    const was = new Set([...el.querySelectorAll('details[open]')].map(d => d.dataset.month));
+    const keep = el.dataset.init === '1';
+    el.innerHTML = groups.map(([m, items], i) => {
+      const isOpen = keep ? was.has(m) : openFirst && i === 0;
+      return `<details data-month="${m}" ${isOpen ? 'open' : ''}><summary><b>${monthLabel(m)}</b>${summary(items, m)}</summary>` +
+        `<div class="tbl"><table><tr>${header}</tr>${items.map(row).join('')}</table></div></details>`;
+    }).join('');
+    el.dataset.init = '1';
+  }
+
+  function resetBlocks() { ['bank', 'recs', 'days'].forEach(id => { $(id).dataset.init = ''; }); }
 
   // Eventi
   const drop = $('drop');
@@ -264,9 +298,9 @@
   });
   $('emps').addEventListener('click', e => {
     const tr = e.target.closest('tr[data-emp]');
-    if (tr) { state.selected = tr.dataset.emp; $('days').innerHTML = ''; save(); render(); $('detail').scrollIntoView({ behavior: 'smooth' }); }
+    if (tr) { state.selected = tr.dataset.emp; resetBlocks(); save(); render(); $('detail').scrollIntoView({ behavior: 'smooth' }); }
   });
-  $('empSel').addEventListener('change', e => { state.selected = e.target.value; $('days').innerHTML = ''; save(); render(); });
+  $('empSel').addEventListener('change', e => { state.selected = e.target.value; resetBlocks(); save(); render(); });
   $('empDel').addEventListener('click', () => {
     if (state.selected && confirm(`Eliminare ${cur().name} e tutti i suoi dati?`)) { delete state.employees[state.selected]; state.selected = null; save(); render(); }
   });

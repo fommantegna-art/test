@@ -53,6 +53,12 @@
   table.clickable tr[data-emp] { cursor: pointer; }
   table.clickable tr[data-emp]:hover td { background: var(--bg); }
   table.clickable tr.sel td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  #recs td:nth-child(4) { white-space: normal; min-width: 140px; }
+  tr.month td { font-weight: 650; background: var(--bg); padding-top: 10px; }
+  #days details { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; }
+  #days summary { cursor: pointer; padding: 10px 12px; }
+  #days details[open] summary { border-bottom: 1px solid var(--border); }
+  #days .tbl { padding: 0 8px 6px; }
   tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
   .pos { color: var(--ok); } .neg { color: var(--bad); }
 </style>
@@ -96,6 +102,11 @@
   </div>
   <div class="stats" id="stats"></div>
 
+  <section class="card">
+    <h2>Riepilogo mensile <span class="muted" style="font-weight:400">— straordinari conteggiati nel mese in cui sono stati fatti</span></h2>
+    <div class="tbl"><table id="months"></table></div>
+  </section>
+
   <div class="grid2">
     <section class="card">
       <h2>Banca ore straordinarie</h2>
@@ -117,7 +128,7 @@
 
   <section class="card">
     <h2>Giornate <span class="muted" style="font-weight:400">— il TOT è modificabile (es. per timbrature incomplete)</span></h2>
-    <div class="tbl"><table id="days"></table></div>
+    <div id="days"></div>
   </section>
 
   </div>
